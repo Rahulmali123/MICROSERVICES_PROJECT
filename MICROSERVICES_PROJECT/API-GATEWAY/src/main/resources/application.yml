@@ -1,0 +1,174 @@
+# Eureka configuration (currently commented)
+# If you enable this, Gateway will register with Eureka server
+
+#eureka:
+#  instance:
+#    prefer-ip-address: true   # Gateway will register using IP instead of hostname
+#
+#  client:
+#    register-with-eureka: true   # Register this service in Eureka
+#    fetch-registry: true         # Fetch list of services from Eureka
+#    serviceUrl:
+#      defaultZone: http://localhost:8761/eureka   # Eureka server URL
+
+
+spring:
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+
+            # ---------------- EMPLOYEE SERVICE ROUTE ----------------
+
+            - id: EMPLOYEEE     # Unique route ID (name of route)
+
+              uri: lb://EMPLOYEE-SERVICE
+              # lb = Load Balancer
+              # EMPLOYEE = service name registered in Eureka
+
+              predicates:
+                - Path=/employees/**
+                # If request URL starts with /employees
+                # Gateway will forward it to EMPLOYEE service
+
+              filters:
+
+                - AuthFilter
+                # Custom filter for authentication
+                # Example: JWT token validation
+
+                - name: CircuitBreaker
+                  args:
+                    name: EMPLOYEE-SERVICE
+                    # Circuit breaker instance name
+
+                    fallbackUri: forward:/employeeServiceFallback
+                    # If service fails, redirect request to fallback API
+
+
+            # ---------------- ADDRESS SERVICE ROUTE ----------------
+
+            - id: ADDRESS
+              # Route identifier
+
+              uri: lb://ADDRESS
+              # Call ADDRESS service via load balancer
+
+              predicates:
+                - Path=/addresses/**
+                # Any request starting with /addresses
+                # will be routed to ADDRESS service
+
+              filters:
+
+                - AuthFilter
+                # Same authentication filter
+
+                - name: CircuitBreaker
+                  args:
+                    name: ADDRESS
+                    # Circuit breaker name
+
+                    fallbackUri: forward:/addressServiceFallback
+                    # If service fails, call fallback API
+
+
+            # ---------------- AUTH SERVICE ROUTE ----------------
+
+            - id: AUTH
+              # Route id for authentication service
+
+              uri: lb://AUTH
+              # AUTH microservice name
+
+              predicates:
+                - Path=/auth/**
+                # Any URL starting with /auth will go to AUTH service
+
+
+
+resilience4j:
+
+  timelimiter:
+    instances:
+
+      EMPLOYEE-SERVICE:
+        timeoutDuration: 5s
+        # If EMPLOYEE service does not respond within 5 seconds
+        # request will timeout
+
+      ADDRESS:
+        timeoutDuration: 5s
+        # Same timeout for ADDRESS service
+
+
+  circuitbreaker:
+    instances:
+
+      EMPLOYEE-SERVICE:
+
+        registerHealthIndicator: true
+        # Shows circuit breaker status in actuator health
+
+        eventConsumerBufferSize: 10
+        # Stores last 10 events for monitoring
+
+        slidingWindowSize: 5
+        # Circuit breaker checks last 5 requests
+
+        minimumNumberOfCalls: 5
+        # Minimum 5 calls required before evaluating failure rate
+
+        failureRateThreshold: 50
+        # If 50% requests fail → circuit opens
+
+        waitDurationInOpenState: 6s
+        # Circuit remains OPEN for 6 seconds before retrying
+
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        # Automatically move OPEN → HALF_OPEN
+
+        permittedNumberOfCallsInHalfOpenState: 3
+        # In HALF_OPEN state only 3 test requests allowed
+
+        slidingWindowType: COUNT_BASED
+        # Count number of requests instead of time window
+
+
+      ADDRESS-SERVICE:
+
+        registerHealthIndicator: true
+        eventConsumerBufferSize: 10
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 6s
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+
+
+
+management:
+
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,circuitbreakers
+        # Expose actuator endpoints
+        # Example:
+        # /actuator/health
+        # /actuator/metrics
+        # /actuator/circuitbreakers
+
+  health:
+    circuitbreakers:
+      enabled: true
+      # Enable circuit breaker health monitoring
+
+  endpoint:
+    health:
+      show-details: always
+      # Show full health details in actuator response
